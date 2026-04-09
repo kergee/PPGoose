@@ -1,0 +1,54 @@
+[package]
+name = "ppgoose"
+version = "0.1.0"
+description = "PPGoose — Smart Image Compressor"
+authors = []
+edition = "2021"
+
+[lib]
+name = "ppgoose_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+rayon = "1"
+walkdir = "2"
+
+# PNG: lossless optimizer + lossy quantizer
+oxipng = { version = "9", default-features = false, features = ["parallel", "zopfli"] }
+imagequant = "4"
+png = "0.17"
+rgb = "0.8"
+
+# Universal image codec (JPEG, GIF, WebP decode/encode)
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "rayon"] }
+
+# JPEG: Mozilla's optimized encoder (better than standard libjpeg by ~30%)
+# Requires a C compiler (clang on macOS, already bundled with Xcode CLI tools)
+mozjpeg = { version = "0.10", default-features = false }
+
+# WebP: lossy encoding via libwebp (bundled C source, compiled via cc)
+webp = "0.3"
+
+# AVIF: pure-Rust AV1 image encoder (~50% smaller than JPEG at same quality)
+# default-features = false disables the "asm" feature which requires NASM.
+# For faster AVIF encoding: brew install nasm, then change to features = ["threading", "asm"]
+ravif = { version = "0.11", default-features = false, features = ["threading"] }
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

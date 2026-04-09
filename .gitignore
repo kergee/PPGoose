@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+src-tauri/target/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE / tools
+.claude/
+.vscode/
+.idea/
+
+# Tauri generated (committed separately when needed)
+src-tauri/gen/
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Background circle -->
+  <rect width="1024" height="1024" rx="220" fill="#0d1f14"/>
+
+  <!-- Body (egg-shaped) -->
+  <ellipse cx="460" cy="660" rx="220" ry="170" fill="#22c55e"/>
+  <!-- Body highlight -->
+  <ellipse cx="420" cy="610" rx="100" ry="70" fill="#4ade80" opacity="0.35"/>
+
+  <!-- Neck -->
+  <path d="M560 560 Q620 480 680 400 Q700 370 700 340" stroke="#22c55e" stroke-width="90" stroke-linecap="round" fill="none"/>
+
+  <!-- Head -->
+  <circle cx="700" cy="300" r="100" fill="#22c55e"/>
+  <!-- Head highlight -->
+  <circle cx="670" cy="268" r="40" fill="#4ade80" opacity="0.4"/>
+
+  <!-- Beak -->
+  <path d="M780 295 L870 280 L860 315 L775 315 Z" fill="#fbbf24"/>
+  <!-- Beak nostril -->
+  <ellipse cx="825" cy="295" rx="12" ry="7" fill="#d97706"/>
+
+  <!-- Eye -->
+  <circle cx="745" cy="278" r="20" fill="white"/>
+  <circle cx="750" cy="278" r="11" fill="#0d1f14"/>
+  <circle cx="756" cy="272" r="4" fill="white"/>
+
+  <!-- Wing -->
+  <path d="M300 650 Q240 580 260 500 Q280 440 350 460 Q420 480 440 560" fill="#16a34a"/>
+  <path d="M260 590 Q220 540 240 490" stroke="#15803d" stroke-width="14" stroke-linecap="round" fill="none"/>
+
+  <!-- Feet -->
+  <path d="M390 820 L360 880 M390 820 L420 880 M390 820 L450 870" stroke="#fbbf24" stroke-width="22" stroke-linecap="round" fill="none"/>
+  <path d="M530 820 L500 880 M530 820 L560 880 M530 820 L590 870" stroke="#fbbf24" stroke-width="22" stroke-linecap="round" fill="none"/>
+
+  <!-- Subtle shadow under body -->
+  <ellipse cx="460" cy="820" rx="200" ry="24" fill="#000" opacity="0.2"/>
+</svg>
