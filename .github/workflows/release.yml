@@ -6,6 +6,9 @@ on:
       - "v*"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -15,7 +18,7 @@ jobs:
           - platform: macos-latest       # Apple Silicon (arm64)
             args: --target aarch64-apple-darwin
             rust-target: aarch64-apple-darwin
-          - platform: macos-13           # Intel Mac (x64)
+          - platform: macos-12           # Intel Mac (x64)
             args: --target x86_64-apple-darwin
             rust-target: x86_64-apple-darwin
           - platform: windows-latest
@@ -43,7 +46,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install Rust
