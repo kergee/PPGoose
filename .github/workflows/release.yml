@@ -15,10 +15,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest       # Apple Silicon (arm64)
+          - platform: macos-26           # Apple Silicon (arm64)
             args: --target aarch64-apple-darwin
             rust-target: aarch64-apple-darwin
-          - platform: macos-13           # Intel Mac (x64) — last Intel runner on GitHub
+          - platform: macos-15           # Intel Mac (x64)
             args: --target x86_64-apple-darwin
             rust-target: x86_64-apple-darwin
           - platform: windows-latest
