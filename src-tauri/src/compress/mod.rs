@@ -63,6 +63,26 @@ impl ConvertTarget {
     }
 }
 
+/// When set, AVIF files are converted to the specified format instead of
+/// being compressed in-place.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum ConvertAvifTarget {
+    Png,
+    Jpeg,
+    WebP,
+}
+
+impl ConvertAvifTarget {
+    pub fn ext(&self) -> &'static str {
+        match self {
+            Self::Png  => "png",
+            Self::Jpeg => "jpg",
+            Self::WebP => "webp",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompressOptions {
@@ -75,6 +95,8 @@ pub struct CompressOptions {
     pub suffix: Option<String>,
     /// If set, WebP files are converted to this format instead of compressed
     pub convert_webp_to: Option<ConvertTarget>,
+    /// If set, AVIF files are converted to this format instead of compressed
+    pub convert_avif_to: Option<ConvertAvifTarget>,
 }
 
 impl Default for CompressOptions {
@@ -85,6 +107,7 @@ impl Default for CompressOptions {
             custom_dir: None,
             suffix: None,
             convert_webp_to: None,
+            convert_avif_to: None,
         }
     }
 }
@@ -117,16 +140,21 @@ pub fn compress_file(input: &Path, opts: &CompressOptions) -> Result<CompressRes
     let quality = if opts.quality == 0 { 80 } else { opts.quality };
 
     // ── Determine output format ──────────────────────────────────────────
-    // WebP can be converted to a different format; everything else stays as-is.
-    let output_fmt: ImageFormat = if fmt == ImageFormat::WebP {
-        match &opts.convert_webp_to {
+    // WebP and AVIF can be converted to a different format; everything else stays as-is.
+    let output_fmt: ImageFormat = match &fmt {
+        ImageFormat::WebP => match &opts.convert_webp_to {
             Some(ConvertTarget::Png)  => ImageFormat::Png,
             Some(ConvertTarget::Jpeg) => ImageFormat::Jpeg,
             Some(ConvertTarget::Avif) => ImageFormat::Avif,
             None                      => ImageFormat::WebP,
-        }
-    } else {
-        fmt.clone()
+        },
+        ImageFormat::Avif => match &opts.convert_avif_to {
+            Some(ConvertAvifTarget::Png)  => ImageFormat::Png,
+            Some(ConvertAvifTarget::Jpeg) => ImageFormat::Jpeg,
+            Some(ConvertAvifTarget::WebP) => ImageFormat::WebP,
+            None                          => ImageFormat::Avif,
+        },
+        other => other.clone(),
     };
 
     // ── Compress / convert ───────────────────────────────────────────────

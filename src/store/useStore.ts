@@ -29,6 +29,7 @@ export const useStore = create<Store>((set, get) => ({
     customDir: undefined,
     suffix: undefined,
     convertWebpTo: null,
+    convertAvifTo: null,
   },
   isCompressing: false,
 

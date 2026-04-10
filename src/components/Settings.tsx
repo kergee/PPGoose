@@ -140,6 +140,35 @@ export function Settings() {
                 仅对 .webp 文件生效，其他格式不受影响
               </p>
             </div>
+
+            {/* AVIF conversion */}
+            <div className="pt-3 border-t border-surface-3">
+              <label className="block text-xs text-neutral-400 mb-2">
+                AVIF 转换目标格式
+              </label>
+              <div className="flex flex-col gap-1.5">
+                {[
+                  { value: null,   label: "不转换（直接压缩）" },
+                  { value: "png",  label: "→ PNG（无损，兼容性最好）" },
+                  { value: "jpeg", label: "→ JPEG（体积最小，不含透明）" },
+                  { value: "webP", label: "→ WebP（现代格式，广泛支持）" },
+                ].map((opt) => (
+                  <label key={String(opt.value)} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="convertAvifTo"
+                      checked={(options.convertAvifTo ?? null) === opt.value}
+                      onChange={() => updateOptions({ convertAvifTo: opt.value as any })}
+                      className="accent-goose-500"
+                    />
+                    <span className="text-xs text-neutral-300">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-neutral-600 mt-2">
+                仅对 .avif 文件生效，其他格式不受影响
+              </p>
+            </div>
           </div>
         </>
       )}

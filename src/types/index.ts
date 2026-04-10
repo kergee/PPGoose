@@ -13,6 +13,7 @@ export interface FileItem {
 }
 
 export type ConvertTarget = "png" | "jpeg" | "avif";
+export type ConvertAvifTarget = "png" | "jpeg" | "webP";
 
 export interface CompressOptions {
   quality: number;       // 0 = auto
@@ -21,6 +22,8 @@ export interface CompressOptions {
   suffix?: string;
   /** If set, WebP files are converted to this format instead of compressed */
   convertWebpTo?: ConvertTarget | null;
+  /** If set, AVIF files are converted to this format instead of compressed */
+  convertAvifTo?: ConvertAvifTarget | null;
 }
 
 export interface CompressResult {
