@@ -2,13 +2,40 @@ pub mod avif;
 pub mod gif;
 pub mod jpeg;
 pub mod png;
+pub mod smart;
 pub mod webp;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Detected image format
+/// Decode image bytes, apply any EXIF orientation (so re-encoded pixels are
+/// upright even though the EXIF metadata itself is dropped), and extract the
+/// ICC colour profile if present so encoders can carry it over.
+pub(crate) fn decode_with_meta(data: &[u8]) -> Result<(image::DynamicImage, Option<Vec<u8>>)> {
+    use image::{ImageDecoder, ImageReader};
+
+    let mut decoder = ImageReader::new(std::io::Cursor::new(data))
+        .with_guessed_format()?
+        .into_decoder()?;
+    let orientation = decoder
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let icc = decoder.icc_profile().ok().flatten();
+    let mut img = image::DynamicImage::from_decoder(decoder)?;
+    img.apply_orientation(orientation);
+    Ok((img, icc))
+}
+
+pub(crate) fn decode_oriented(data: &[u8]) -> Result<image::DynamicImage> {
+    decode_with_meta(data).map(|(img, _)| img)
+}
+
+/// Detected image format.
+///
+/// AVIF is an output-only format: `ravif` can encode it, but there is no
+/// portable decoder available (image's `avif-native` needs system dav1d),
+/// so `from_path` never returns `Avif`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImageFormat {
     Png,
@@ -25,7 +52,6 @@ impl ImageFormat {
             "jpg" | "jpeg" => Some(Self::Jpeg),
             "gif"          => Some(Self::Gif),
             "webp"         => Some(Self::WebP),
-            "avif"         => Some(Self::Avif),
             _              => None,
         }
     }
@@ -63,26 +89,6 @@ impl ConvertTarget {
     }
 }
 
-/// When set, AVIF files are converted to the specified format instead of
-/// being compressed in-place.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub enum ConvertAvifTarget {
-    Png,
-    Jpeg,
-    WebP,
-}
-
-impl ConvertAvifTarget {
-    pub fn ext(&self) -> &'static str {
-        match self {
-            Self::Png  => "png",
-            Self::Jpeg => "jpg",
-            Self::WebP => "webp",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompressOptions {
@@ -95,8 +101,10 @@ pub struct CompressOptions {
     pub suffix: Option<String>,
     /// If set, WebP files are converted to this format instead of compressed
     pub convert_webp_to: Option<ConvertTarget>,
-    /// If set, AVIF files are converted to this format instead of compressed
-    pub convert_avif_to: Option<ConvertAvifTarget>,
+    /// 极致模式: perceptual-quality-guided search for the smallest acceptable
+    /// quality (JPEG/WebP outputs, only when quality is auto). Slower.
+    #[serde(default)]
+    pub smart_quality: bool,
 }
 
 impl Default for CompressOptions {
@@ -107,7 +115,7 @@ impl Default for CompressOptions {
             custom_dir: None,
             suffix: None,
             convert_webp_to: None,
-            convert_avif_to: None,
+            smart_quality: false,
         }
     }
 }
@@ -137,10 +145,16 @@ pub fn compress_file(input: &Path, opts: &CompressOptions) -> Result<CompressRes
     let original_bytes = std::fs::read(input)?;
     let original_size = original_bytes.len() as u64;
 
+    // Animated WebP would be silently flattened to a single frame by every
+    // re-encode path (image's loader only yields the first frame) — reject it.
+    if fmt == ImageFormat::WebP && webp::is_animated(&original_bytes) {
+        anyhow::bail!("暂不支持动画 WebP，已跳过以避免丢失动画帧");
+    }
+
     let quality = if opts.quality == 0 { 80 } else { opts.quality };
 
     // ── Determine output format ──────────────────────────────────────────
-    // WebP and AVIF can be converted to a different format; everything else stays as-is.
+    // WebP can be converted to a different format; everything else stays as-is.
     let output_fmt: ImageFormat = match &fmt {
         ImageFormat::WebP => match &opts.convert_webp_to {
             Some(ConvertTarget::Png)  => ImageFormat::Png,
@@ -148,20 +162,24 @@ pub fn compress_file(input: &Path, opts: &CompressOptions) -> Result<CompressRes
             Some(ConvertTarget::Avif) => ImageFormat::Avif,
             None                      => ImageFormat::WebP,
         },
-        ImageFormat::Avif => match &opts.convert_avif_to {
-            Some(ConvertAvifTarget::Png)  => ImageFormat::Png,
-            Some(ConvertAvifTarget::Jpeg) => ImageFormat::Jpeg,
-            Some(ConvertAvifTarget::WebP) => ImageFormat::WebP,
-            None                          => ImageFormat::Avif,
-        },
         other => other.clone(),
     };
 
     // ── Compress / convert ───────────────────────────────────────────────
+    // Smart mode only applies when quality is auto, and never to lossless
+    // WebP sources (those are preserved losslessly regardless of quality).
+    let smart = opts.smart_quality && opts.quality == 0;
+
     let compressed = match &output_fmt {
         ImageFormat::Png  => png::compress(&original_bytes, quality)?,
+        ImageFormat::Jpeg if smart => {
+            smart::search(&original_bytes, |q| jpeg::compress(&original_bytes, q))?
+        }
         ImageFormat::Jpeg => jpeg::compress(&original_bytes, quality)?,
-        ImageFormat::Gif  => gif::compress(&original_bytes)?,
+        ImageFormat::Gif  => gif::compress(&original_bytes, quality)?,
+        ImageFormat::WebP if smart && !webp::is_lossless(&original_bytes) => {
+            smart::search(&original_bytes, |q| webp::compress(&original_bytes, q))?
+        }
         ImageFormat::WebP => webp::compress(&original_bytes, quality)?,
         ImageFormat::Avif => avif::compress(&original_bytes, quality)?,
     };
@@ -176,7 +194,15 @@ pub fn compress_file(input: &Path, opts: &CompressOptions) -> Result<CompressRes
 
     let output_path = resolve_output_path(input, opts, output_fmt.ext())?;
     std::fs::create_dir_all(output_path.parent().unwrap_or(Path::new(".")))?;
-    std::fs::write(&output_path, &final_bytes)?;
+
+    // Atomic replace: write a temp file first, then rename over the target,
+    // so a crash / full disk mid-write can't corrupt the original (Overwrite mode).
+    let tmp_path = output_path.with_extension(format!("{}.tmp", output_fmt.ext()));
+    std::fs::write(&tmp_path, &final_bytes)?;
+    if let Err(e) = std::fs::rename(&tmp_path, &output_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
 
     Ok(CompressResult {
         input_path: input.to_string_lossy().into_owned(),

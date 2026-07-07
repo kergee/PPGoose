@@ -1,9 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import { CompressOptions, CompressResult } from "../types";
+import { CompressOptions, CompressResult, FileMeta } from "../types";
 
 export const tauriApi = {
   scanPaths: (paths: string[]) =>
-    invoke<{ files: string[] }>("scan_paths", { paths }),
+    invoke<{ files: FileMeta[] }>("scan_paths", { paths }),
 
   compressFile: (path: string, options: CompressOptions) =>
     invoke<CompressResult>("compress_file", { path, options }),

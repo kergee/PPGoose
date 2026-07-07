@@ -13,7 +13,6 @@ export interface FileItem {
 }
 
 export type ConvertTarget = "png" | "jpeg" | "avif";
-export type ConvertAvifTarget = "png" | "jpeg" | "webP";
 
 export interface CompressOptions {
   quality: number;       // 0 = auto
@@ -22,8 +21,14 @@ export interface CompressOptions {
   suffix?: string;
   /** If set, WebP files are converted to this format instead of compressed */
   convertWebpTo?: ConvertTarget | null;
-  /** If set, AVIF files are converted to this format instead of compressed */
-  convertAvifTo?: ConvertAvifTarget | null;
+  /** 极致模式: perceptual-quality search (slower, usually smaller). Only applies when quality is 0 (auto) */
+  smartQuality?: boolean;
+}
+
+/** A scanned input file with its on-disk size */
+export interface FileMeta {
+  path: string;
+  size: number;
 }
 
 export interface CompressResult {

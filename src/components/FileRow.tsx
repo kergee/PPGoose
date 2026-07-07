@@ -46,27 +46,36 @@ export function FileRow({ file }: Props) {
         {file.name}
       </span>
 
-      {/* Original size */}
-      <span className="text-xs text-neutral-500 w-20 text-right tabular-nums">
-        {formatSize(file.originalSize)}
-      </span>
+      {file.status === "error" ? (
+        /* Error message (spans the size columns) */
+        <span className="w-60 text-right text-xs text-red-400 truncate" title={file.error}>
+          {file.error}
+        </span>
+      ) : (
+        <>
+          {/* Original size */}
+          <span className="text-xs text-neutral-500 w-20 text-right tabular-nums">
+            {formatSize(file.originalSize)}
+          </span>
 
-      {/* Arrow */}
-      <span className="text-neutral-600 text-xs">→</span>
+          {/* Arrow */}
+          <span className="text-neutral-600 text-xs">→</span>
 
-      {/* Compressed size */}
-      <span className={`text-xs w-20 text-right tabular-nums ${
-        file.status === "done" ? (isGood ? "text-goose-400" : "text-neutral-400") : "text-neutral-600"
-      }`}>
-        {file.status === "done" ? formatSize(file.compressedSize!) : "—"}
-      </span>
+          {/* Compressed size */}
+          <span className={`text-xs w-20 text-right tabular-nums ${
+            file.status === "done" ? (isGood ? "text-goose-400" : "text-neutral-400") : "text-neutral-600"
+          }`}>
+            {file.status === "done" ? formatSize(file.compressedSize!) : "—"}
+          </span>
 
-      {/* Savings */}
-      <span className={`text-xs font-semibold w-12 text-right tabular-nums ${
-        isGood ? "text-goose-400" : "text-neutral-600"
-      }`}>
-        {savings || "—"}
-      </span>
+          {/* Savings */}
+          <span className={`text-xs font-semibold w-12 text-right tabular-nums ${
+            isGood ? "text-goose-400" : "text-neutral-600"
+          }`}>
+            {savings || "—"}
+          </span>
+        </>
+      )}
 
       {/* Status indicator */}
       <div className="w-6 flex justify-center">

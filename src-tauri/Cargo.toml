@@ -1,6 +1,6 @@
 [package]
 name = "ppgoose"
-version = "0.1.0"
+version = "0.1.1"
 description = "PPGoose — Smart Image Compressor"
 authors = []
 edition = "2021"
@@ -23,13 +23,24 @@ rayon = "1"
 walkdir = "2"
 
 # PNG: lossless optimizer + lossy quantizer
-oxipng = { version = "9", default-features = false, features = ["parallel", "zopfli"] }
+oxipng = { version = "9", default-features = false, features = ["parallel"] }
 imagequant = "4"
 png = "0.17"
 rgb = "0.8"
 
 # Universal image codec (JPEG, GIF, WebP decode/encode)
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "rayon"] }
+
+# Direct gif dep: image's GifDecoder doesn't expose the loop-count extension
+gif = "0.14"
+
+# GIF: gifski encoder (cross-frame palettes, far better quality/size than
+# per-frame NeuQuant). default-features off skips the gifsicle C code.
+gifski = { version = "1", default-features = false }
+imgref = "1"
+
+# Perceptual quality metric for smart-quality mode (极致模式)
+dssim-core = "3"
 
 # JPEG: Mozilla's optimized encoder (better than standard libjpeg by ~30%)
 # Requires a C compiler (clang on macOS, already bundled with Xcode CLI tools)
@@ -46,8 +57,9 @@ ravif = { version = "0.11", default-features = false, features = ["threading"] }
 [profile.dev]
 incremental = true
 
+# NOTE: do not set panic = "abort" here — mozjpeg reports errors via panics
+# and jpeg.rs relies on catch_unwind to turn them into per-file errors.
 [profile.release]
-panic = "abort"
 codegen-units = 1
 lto = true
 opt-level = "s"

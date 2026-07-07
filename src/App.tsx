@@ -25,7 +25,7 @@ export default function App() {
             <path d="M26 24 Q28 18 36 20" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" fill="none" />
           </svg>
           <span className="text-sm font-semibold text-neutral-100">PPGoose</span>
-          <span className="text-xs text-neutral-600 font-mono">v0.1</span>
+          <span className="text-xs text-neutral-600 font-mono">v0.1.1</span>
         </div>
 
         <Settings />
