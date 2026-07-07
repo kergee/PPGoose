@@ -12,14 +12,14 @@ use rgb::RGBA8;
 ///   5. Compare all candidates and return the smallest.
 pub fn compress(data: &[u8], quality: u8) -> Result<Vec<u8>> {
     // --- Decode ----------------------------------------------------------
-    let img = image::load_from_memory(data)?.into_rgba8();
-    let (width, height) = img.dimensions();
+    let img = super::decode_oriented(data)?.into_rgba8();
 
     // --- Lossy quantisation ----------------------------------------------
     let quantised = quantise(&img, quality).unwrap_or_default();
 
     // --- Lossless oxipng pass on original --------------------------------
-    let oxipng_opts = oxipng::Options::from_preset(4);
+    // Preset 2 is ~4x faster than 4 on large images for a marginal size difference.
+    let oxipng_opts = oxipng::Options::from_preset(2);
     let lossless = oxipng::optimize_from_memory(data, &oxipng_opts).unwrap_or_else(|_| data.to_vec());
 
     // --- Pick the winner -------------------------------------------------
@@ -41,9 +41,6 @@ pub fn compress(data: &[u8], quality: u8) -> Result<Vec<u8>> {
         best = &lossless;
     }
 
-    // Silence unused variable warnings for width/height
-    let _ = (width, height);
-
     Ok(best.to_vec())
 }
 
@@ -59,8 +56,12 @@ fn quantise(img: &RgbaImage, quality: u8) -> Option<Vec<u8>> {
 
     let mut liq = imagequant::new();
     // quality range 0-100; clamp to ensure valid range
-    let q = quality.clamp(30, 95) as u32;
-    liq.set_quality(0, q as u8).ok()?;
+    let q = quality.clamp(30, 95);
+    // Minimum acceptable quality: if 256 colours can't reach it (photos,
+    // gradients), quantize() fails and the caller falls back to lossless
+    // oxipng. This is what makes "lossy for flat art, lossless for photos"
+    // actually happen — a floor of 0 would force-posterize everything.
+    liq.set_quality(q.saturating_sub(25), q).ok()?;
 
     let mut liq_img = liq.new_image(
         pixels.as_slice(),
@@ -96,4 +97,43 @@ fn quantise(img: &RgbaImage, quality: u8) -> Option<Vec<u8>> {
     }
 
     Some(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn png_bytes(img: &RgbaImage) -> Vec<u8> {
+        let mut buf = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
+        buf.into_inner()
+    }
+
+    #[test]
+    fn flat_art_is_quantised() {
+        // 4-colour flat image: quantisation must succeed under the quality floor
+        let img = RgbaImage::from_fn(64, 64, |x, y| {
+            image::Rgba([if x < 32 { 255 } else { 0 }, if y < 32 { 255 } else { 0 }, 0, 255])
+        });
+        assert!(quantise(&img, 80).is_some());
+        let out = compress(&png_bytes(&img), 80).unwrap();
+        assert!(image::load_from_memory(&out).is_ok());
+    }
+
+    #[test]
+    fn noise_rejects_quantisation_but_still_compresses() {
+        // Pseudo-random noise can't hit the quality floor with 256 colours:
+        // quantise() must fail so the caller falls back to lossless oxipng
+        let mut seed = 0x12345678u32;
+        let img = RgbaImage::from_fn(64, 64, |_, _| {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            let b = seed.to_le_bytes();
+            image::Rgba([b[0], b[1], b[2], 255])
+        });
+        assert!(quantise(&img, 80).is_none());
+
+        let out = compress(&png_bytes(&img), 80).unwrap();
+        let decoded = image::load_from_memory(&out).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (64, 64));
+    }
 }

@@ -10,8 +10,10 @@ PPGoose 整合了业内最优秀的开源压缩算法，根据每张图片的特
 
 | 特性 | 说明 |
 |------|------|
-| **五格式支持** | PNG · JPG · GIF · WebP · **AVIF** |
+| **格式支持** | 压缩 PNG · JPG · GIF · WebP，可输出 **AVIF**（AVIF 暂不支持作为输入） |
 | **自动选参** | 分析图片色彩复杂度，自动在无损/有损之间选择最优策略 |
+| **极致模式** | 按感知质量（DSSIM）二分搜索最低可用编码质量，JPEG/WebP 通常再小 10–30% |
+| **色彩保真** | 自动修正 EXIF 方向；JPEG 保留 ICC 色彩配置文件（广色域不偏色） |
 | **批量 + 子文件夹** | 拖入文件夹后递归扫描所有支持格式 |
 | **并行压缩** | Rust 多线程，充分利用多核 |
 | **输出方式** | 覆盖原文件 / 保存到 `compressed/` 子文件夹 / 自定义目录 |
@@ -26,10 +28,10 @@ PPGoose 整合了业内最优秀的开源压缩算法，根据每张图片的特
 | 格式 | 引擎 | 策略 |
 |------|------|------|
 | PNG | `oxipng` + `imagequant` | 色彩少用有损量化，色彩丰富用无损优化；双路对比取最小 |
-| JPG | `mozjpeg` | Mozilla 优化版编码器，同等画质比标准 libjpeg 小 30–40% |
-| WebP | `libwebp` | 有损重编码，quality 可调；可转换为 PNG / JPEG / AVIF |
-| GIF | `image` crate | 帧重编码 + 色板优化 |
-| AVIF | `ravif` | 纯 Rust AV1 编码，同等画质比 JPEG 小 ~50% |
+| JPG | `mozjpeg` | 渐进式 + Huffman 优化，自动修正 EXIF 方向，灰度图保持单通道，高质量档不做色度降采样 |
+| WebP | `libwebp` | 无损源保持无损重编码，有损源按 quality 重编码；可转换为 PNG / JPEG / AVIF；动画 WebP 暂不支持 |
+| GIF | `gifski` | 跨帧调色板 + 帧间优化，保留循环次数与帧延迟 |
+| AVIF | `ravif` | 纯 Rust AV1 编码（仅输出），同等画质比 JPEG 小 ~50% |
 
 ## 界面截图
 
@@ -37,7 +39,7 @@ PPGoose 整合了业内最优秀的开源压缩算法，根据每张图片的特
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  🪿 PPGoose  v0.1                               ⚙  │
+│  🪿 PPGoose  v0.1.1                             ⚙  │
 ├─────────────────────────────────────────────────────┤
 │         ┌────────────────────────────────┐          │
 │         │   将图片或文件夹拖到这里         │          │
@@ -87,12 +89,13 @@ npm run tauri build
 | 前端 | React 18 · TypeScript · Tailwind CSS v3 |
 | 状态管理 | Zustand |
 | 后端 | Rust + Tokio + Rayon |
-| 压缩库 | oxipng · imagequant · mozjpeg · libwebp · ravif · image-rs |
+| 压缩库 | oxipng · imagequant · mozjpeg · libwebp · ravif · gifski · dssim · image-rs |
 
 ## 路线图
 
-- [x] AVIF 格式支持（`ravif`）
+- [x] AVIF 输出支持（`ravif` 编码）
 - [x] WebP 转换为 PNG / JPEG / AVIF
+- [ ] AVIF 输入解码（需引入 dav1d 或等待成熟的纯 Rust 解码器）
 - [ ] 压缩前后对比预览（左右滑块）
 - [ ] 浅色模式
 - [ ] 右键菜单快捷入口（macOS / Windows）

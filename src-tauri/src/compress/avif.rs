@@ -8,7 +8,7 @@ use rgb::RGBA8;
 ///
 /// speed: 1 (slowest/best) – 10 (fastest/worst); 4 is a good default.
 pub fn compress(data: &[u8], quality: u8) -> Result<Vec<u8>> {
-    let img = image::load_from_memory(data)?.into_rgba8();
+    let img = super::decode_oriented(data)?.into_rgba8();
     let (width, height) = img.dimensions();
 
     let pixels: Vec<RGBA8> = img

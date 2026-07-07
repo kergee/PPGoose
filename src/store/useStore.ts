@@ -29,7 +29,7 @@ export const useStore = create<Store>((set, get) => ({
     customDir: undefined,
     suffix: undefined,
     convertWebpTo: null,
-    convertAvifTo: null,
+    smartQuality: false,
   },
   isCompressing: false,
 
@@ -37,31 +37,27 @@ export const useStore = create<Store>((set, get) => ({
     const { files: scanned } = await tauriApi.scanPaths(paths);
     if (scanned.length === 0) return;
 
-    const existing = new Set(get().files.map((f) => f.path));
-    const newItems: FileItem[] = scanned
-      .filter((p) => !existing.has(p))
-      .map((p) => {
-        const parts = p.replace(/\\/g, "/").split("/");
-        const name = parts[parts.length - 1];
-        const ext = name.split(".").pop()?.toLowerCase() ?? "";
-        return {
-          id: genId(),
-          path: p,
-          name,
-          ext,
-          originalSize: 0,
-          status: "pending",
-        };
+    // Dedupe against files already in the list AND within this batch
+    const seen = new Set(get().files.map((f) => f.path));
+    const newItems: FileItem[] = [];
+    for (const meta of scanned) {
+      if (seen.has(meta.path)) continue;
+      seen.add(meta.path);
+      const parts = meta.path.replace(/\\/g, "/").split("/");
+      const name = parts[parts.length - 1];
+      const ext = name.split(".").pop()?.toLowerCase() ?? "";
+      newItems.push({
+        id: genId(),
+        path: meta.path,
+        name,
+        ext,
+        originalSize: meta.size,
+        status: "pending",
       });
+    }
 
     if (newItems.length === 0) return;
-
-    // Fetch file sizes asynchronously
     set((s) => ({ files: [...s.files, ...newItems] }));
-
-    // Get sizes via compress_file dry-run is too slow;
-    // read size via file metadata command instead
-    // For now, size will be filled in after compression.
   },
 
   startCompression: async () => {

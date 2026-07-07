@@ -3,16 +3,28 @@ mod compress;
 use compress::{CompressOptions, CompressResult};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::Path;
 use tauri::Emitter;
 use walkdir::WalkDir;
+
+/// Extensions accepted as input. AVIF is encode-only (no portable decoder),
+/// so it is a conversion target but not an input format.
+const SUPPORTED_EXTS: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FileMeta {
+    pub path: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanResult {
-    pub files: Vec<String>,
+    pub files: Vec<FileMeta>,
 }
 
 /// Progress event emitted per file during batch compress
@@ -26,48 +38,43 @@ pub struct ProgressEvent {
 
 // ── Commands ───────────────────────────────────────────────────────────────
 
-/// Scan a list of paths (files or folders) and return all supported image files.
+fn is_supported(path: &Path) -> bool {
+    path.extension()
+        .and_then(|x| x.to_str())
+        .map(|x| SUPPORTED_EXTS.contains(&x.to_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+fn add_file(path: &Path, seen: &mut HashSet<String>, files: &mut Vec<FileMeta>) {
+    let key = path.to_string_lossy().into_owned();
+    if seen.insert(key.clone()) {
+        let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        files.push(FileMeta { path: key, size });
+    }
+}
+
+/// Scan a list of paths (files or folders) and return all supported image
+/// files with their sizes, deduplicated across the whole batch.
 #[tauri::command]
 fn scan_paths(paths: Vec<String>) -> ScanResult {
-    let supported_exts = ["png", "jpg", "jpeg", "gif", "webp", "avif"];
+    let mut seen = HashSet::new();
+    let mut files = Vec::new();
 
-    let mut files: Vec<String> = paths
-        .iter()
-        .flat_map(|p| {
-            let path = Path::new(p);
-            if path.is_dir() {
-                WalkDir::new(path)
-                    .follow_links(true)
-                    .into_iter()
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.file_type().is_file())
-                    .filter(|e| {
-                        e.path()
-                            .extension()
-                            .and_then(|x| x.to_str())
-                            .map(|x| supported_exts.contains(&x.to_lowercase().as_str()))
-                            .unwrap_or(false)
-                    })
-                    .map(|e| e.path().to_string_lossy().into_owned())
-                    .collect::<Vec<_>>()
-            } else if path.is_file() {
-                let ext = path
-                    .extension()
-                    .and_then(|x| x.to_str())
-                    .unwrap_or("");
-                if supported_exts.contains(&ext.to_lowercase().as_str()) {
-                    vec![p.clone()]
-                } else {
-                    vec![]
-                }
-            } else {
-                vec![]
+    for p in &paths {
+        let path = Path::new(p);
+        if path.is_dir() {
+            for entry in WalkDir::new(path)
+                .follow_links(true)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_file() && is_supported(e.path()))
+            {
+                add_file(entry.path(), &mut seen, &mut files);
             }
-        })
-        .collect();
-
-    // Deduplicate while preserving order
-    files.dedup();
+        } else if path.is_file() && is_supported(path) {
+            add_file(path, &mut seen, &mut files);
+        }
+    }
 
     ScanResult { files }
 }
@@ -82,34 +89,34 @@ fn compress_file(path: String, options: CompressOptions) -> Result<CompressResul
 /// Compress a batch of files in parallel, emitting per-file progress events.
 ///
 /// Each file emits a `compress://progress` event with `ProgressEvent` payload.
+/// The rayon batch runs on a blocking thread so it doesn't stall the async
+/// runtime that serves other IPC commands.
 #[tauri::command]
 async fn compress_batch(
     app: tauri::AppHandle,
     file_ids: Vec<(String, String)>, // [(id, path)]
     options: CompressOptions,
 ) -> Result<(), String> {
-    let app = app.clone();
-    let options = options.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        file_ids.par_iter().for_each(|(id, path)| {
+            let event = match compress::compress_file(Path::new(path), &options) {
+                Ok(result) => ProgressEvent {
+                    file_id: id.clone(),
+                    result: Some(result),
+                    error: None,
+                },
+                Err(e) => ProgressEvent {
+                    file_id: id.clone(),
+                    result: None,
+                    error: Some(e.to_string()),
+                },
+            };
 
-    // Process in parallel using rayon
-    file_ids.par_iter().for_each(|(id, path)| {
-        let event = match compress::compress_file(Path::new(path), &options) {
-            Ok(result) => ProgressEvent {
-                file_id: id.clone(),
-                result: Some(result),
-                error: None,
-            },
-            Err(e) => ProgressEvent {
-                file_id: id.clone(),
-                result: None,
-                error: Some(e.to_string()),
-            },
-        };
-
-        let _ = app.emit("compress://progress", &event);
-    });
-
-    Ok(())
+            let _ = app.emit("compress://progress", &event);
+        });
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Open a native file/folder picker and return selected paths.
@@ -120,10 +127,7 @@ async fn pick_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
     let paths = app
         .dialog()
         .file()
-        .add_filter(
-            "Images",
-            &["png", "jpg", "jpeg", "gif", "webp"],
-        )
+        .add_filter("Images", &SUPPORTED_EXTS)
         .blocking_pick_files();
 
     Ok(paths
@@ -173,5 +177,5 @@ pub fn run() {
             pick_folders,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running PPGoose");
+        .expect("error while running PPGoose")
 }
