@@ -1,0 +1,144 @@
+PPGoose 独立压缩核心 / CMS 接入
+日期：2026-10-14；crate 版本：0.2.0；JSON 协议版本：1
+
+一、交付结构
+crates/ppgoose-core：独立 Rust 库，包含压缩策略、字节接口与文件事务/备份恢复。
+crates/ppgoose-cli：跨语言调用入口，一次进程处理一个 JSON 请求。
+crates/Cargo.toml、Cargo.lock：独立工作区与锁定依赖，可脱离 src-tauri 构建。
+src-tauri/src/compress/mod.rs：仅重导出共享核心，桌面与 CMS 使用同一套算法。
+examples/cms_compress.py：标准库 subprocess 接入示例，无 shell 拼接。
+
+运行 CLI 不需要桌面窗口。编译仍需 Rust 1.89+ 与 C 编译器（Windows 使用 MSVC）。
+CLI 是子进程接口，不提供 HTTP 服务、Java JNI 或稳定 C ABI；Rust 直接使用库。
+
+二、构建与测试（在仓库根目录使用 PowerShell）
+cargo test --manifest-path crates/Cargo.toml --locked
+cargo build --manifest-path crates/Cargo.toml --release -p ppgoose-cli --locked
+
+默认独立产物：crates/target/release/ppgoose-cli.exe（Linux/macOS 无 .exe）。
+本轮本机为复用编译缓存增加了 --target-dir src-tauri/target，产物因此在：
+src-tauri/target/release/ppgoose-cli.exe
+
+桌面检查：cargo check --manifest-path src-tauri/Cargo.toml --locked
+前端检查：npm run build
+不要把 Rust release profile 改为 panic=abort，mozjpeg 的错误需要 unwind。
+
+三、Rust 内存接口
+依赖：ppgoose-core = { path = ".../crates/ppgoose-core" }
+
+use ppgoose_core::{compress_bytes, EncodingOptions};
+let options = EncodingOptions {
+    target_size_kb: Some(200),
+    max_edge: Some(1600),
+    allow_resize: true,
+    ..Default::default()
+};
+let result = compress_bytes(&uploaded_bytes, &options)?;
+// result.bytes 为实际输出；result.output_format.ext() 决定扩展名。
+// width/height、resized、kept_original、target_size、原始/压缩字节数均可读取。
+
+输入格式按内容识别，不依赖文件名。支持 PNG/JPEG/GIF/静态 WebP；AVIF 仅输出。
+内存接口不会创建文件、备份、日志或目录，CMS 可以使用自己的对象存储/事务。
+文件接口：compress_file(input: &Path, options: &CompressOptions, store: &storage::Store)。
+Store::new(persistent_path) 支持 records()、restore(record_id) 与 preview(record_id)。
+文件输入另外核对扩展名和实际内容；转换后的扩展名按实际格式生成。
+
+四、JSON 调用约定
+不传命令行参数；stdin 写入一份 UTF-8 JSON 后必须关闭，CLI 才开始处理。
+stdout 返回一行 JSON。stderr 用于底层诊断，不作为成功结果。
+请求上限 1 MiB，支持 UTF-8 BOM；不接受多份 JSON、未知字段或未知策略值。
+退出码：0 成功；1 请求/处理失败；2 参数或输出通道失败。
+--help / --version 仅用于人工诊断，输出不是 JSON。
+
+请求示例（路径请替换为 CMS 本机的绝对路径；JSON 反斜杠必须转义）：
+{
+  "protocolVersion": 1,
+  "operation": "compress",
+  "inputPath": "D:\\cms\\uploads\\示例.png",
+  "dataDirectory": "D:\\cms\\ppgoose-state",
+  "options": {
+    "quality": 0,
+    "pngStrategy": "detail",
+    "jpegStrategy": "balanced",
+    "outputMode": "custom",
+    "customDir": "D:\\cms\\compressed",
+    "targetSizeKb": 200,
+    "qualityFloor": 40,
+    "maxEdge": 1600,
+    "allowResize": true
+  }
+}
+
+成功结构：
+{"protocolVersion":1,"ok":true,"result":{...CompressResult...}}
+result 包含 inputPath、outputPath、originalSize、compressedSize、recordId、overwritten、
+warning、resized、width、height、targetSize、keptOriginal。
+warning 若非 null，应保存/显示；成功写入后日志最终化失败可能以 warning 返回。
+
+失败结构：
+{"protocolVersion":1,"ok":false,"error":{"code":"processingFailed","message":"..."}}
+无法解析请求时 code 为 invalidRequest；协议版本、参数、编码或文件事务失败为 processingFailed。
+CMS 同时检查退出码、protocolVersion 和 ok；不能仅凭输出路径推断成功。
+
+查询历史：
+{"protocolVersion":1,"operation":"listHistory","dataDirectory":"D:\\cms\\ppgoose-state"}
+恢复覆盖前原图：
+{"protocolVersion":1,"operation":"restore","dataDirectory":"D:\\cms\\ppgoose-state","recordId":"实际记录ID"}
+每次使用同一持久 dataDirectory，CLI 重启后也能恢复。恢复会核对备份和当前输出 hash。
+
+五、策略与默认值
+quality：0 自动，1–100 手动；qualityFloor 默认 40，仅作为目标搜索的编码档位下限。
+pngStrategy：detail（默认）、balanced、lossless。
+  detail 自动 55–98；balanced 自动 55–80；手动保留原量化范围规则。
+  PNG 保留 ICC/gAMA/cHRM/sRGB；缩放中间图也保留这些色彩信息和 16-bit 精度。
+  APNG 和 16-bit PNG 常规压缩走无损优化；APNG、像素无损策略拒绝缩小。
+jpegStrategy：balanced（默认）、detail、compact。
+  balanced 保持原自动 80，手动 >=90 使用 4:4:4。
+  detail 自动 80，所有质量使用 4:4:4 和上游 mozjpeg 第 3 号 N. Robidoux 表。
+  compact 自动 67，同样使用 4:4:4、表 3、baseline 范围量化、渐进扫描优化。
+  手动质量仍优先；smartQuality 或 targetSizeKb 启用时会搜索，compact 不是固定 67。
+  低质量档使用 Rust 包装库的浮点表缩放；不同编码器相同质量值不保证同等画质。
+smartQuality：默认 false，自动 JPEG/有损 WebP 按 DSSIM 搜索。
+  保留原 q40–95 搜索；若 q95 仍不达阈值则返回 q95，不是所有图片的画质保证。
+  与 targetSizeKb 互斥；不用于无损 WebP、PNG 或 GIF。
+WebP：无损源保持无损；启用 exact 保留全透明像素下的 RGB；静态输出携带源 ICC。
+  编码失败返回错误，不使用易 panic 的简化编码入口；RIFF 长度要与内容匹配。
+  动画 WebP 拒绝处理，避免扁平化；没有引入报告中的 GIF→WebP 帧延时改变。
+GIF：继续使用现有独立差帧无损候选与 gifski 候选；保护帧数、逐帧延迟和循环。
+  本次未移植 gifsicle 有损 LZW，也未复制旧备份缓存/取消处理的可靠性问题。
+AVIF：没有便携解码器；携带 ICC 的源拒绝转 AVIF，因为当前 ravif 接口不能保留/转换该 profile。
+  可以先由 CMS 做明确色彩转换，或选 PNG/JPEG；无 profile 的现有 AVIF 输出仍支持。
+
+targetSizeKb：1–102400，硬上限 KB×1024；maxEdge：1–30000，仅缩小。
+allowResize：默认 false；每次从原像素编码，最多尝试五组尺寸。
+目标搜索增加下限质量兜底探测，但仍是有界搜索，不保证穷举所有非单调候选。
+无法达标时在文件事务之前失败；同格式未缩小时不增大体积，转换可能增大。
+convertWebpTo：null/png/jpeg/avif；PNG 先真正转换且保留解码像素，JPEG 透明区域铺白底。
+
+CLI outputMode：省略 options 或部分 options 未含 outputMode 时默认 subfolder。
+桌面及 Rust CompressOptions::default() 继续默认 overwrite，调用 Rust 文件接口需显式选输出方式。
+subfolder/custom 同名时自动编号，不替换已有文件；只有显式源覆盖才替换。
+覆盖前保存原图备份、Prepared 日志与 hash，提交后记录 Done；保留现有进程间锁。
+suffix 可选，禁止路径分隔符、控制字符和无效文件名字符。
+
+六、CMS 进程示例
+python examples/cms_compress.py .\src-tauri\target\release\ppgoose-cli.exe `
+  'D:\cms\uploads\示例.png' 'D:\cms\ppgoose-state' `
+  --output-directory 'D:\cms\compressed' --target-size-kb 200 --max-edge 1600 --allow-resize
+
+Java/C#/PHP 同样使用子进程并写 stdin JSON；不要把用户路径拼进 shell 命令。
+stdin 必须关闭；同时消费 stdout/stderr，设置任务超时并限制并发。
+接入端由 CMS 确认输入/输出都在授权上传目录内，配置上传大小、图片像素/动画预算与服务账户权限。
+CLI 没有认证服务或服务器根目录沙箱，也没有把不受信任图片解码隔离成安全沙箱。
+超时杀进程不等于自动撤销已提交文件；保留 dataDirectory 中的 Prepared/Done 记录并核对后处理。
+内存库的总内存/运行时间不作硬保证；对不受信任上传优先使用受资源约束的子进程。
+
+七、证据范围
+单元/接口/跨进程测试与本机 release CLI 检查证明当前实现；不等于 CMS 生产部署验收。
+历史 8 图比较不自动变成本轮安装包结论；本轮独立回归另记，不评判同等画质胜负。
+广色域显示、完整安装包/真实桌面交互、Linux/macOS CLI 运行和 CMS 服务账户尚需对应环境验收。
+
+公开参数来源：
+https://github.com/mozilla/mozjpeg/blob/v4.1.1/jcparam.c
+https://docs.rs/mozjpeg/0.10.13/mozjpeg/
+https://docs.rs/webp/0.3.1/webp/struct.WebPConfig.html

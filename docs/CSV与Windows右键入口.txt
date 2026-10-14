@@ -1,0 +1,17 @@
+CSV 与 Windows 右键入口验证
+日期：2026-10-14
+
+CSV：npm run test:csv 通过，覆盖中文、BOM、引号/换行、公式前缀、失败信息、零值与负节省值。
+队列导出记录当次设置快照，调整当前设置不会改写已经完成的行。
+浏览器使用模拟 IPC 验证启动入队、菜单开关、完成/失败行、实际配置快照及 CSV 保存状态。
+模拟 IPC 只证明前端交互，不冒称真实文件保存或 Explorer 点击验收。
+
+Windows：cargo test --manifest-path src-tauri/Cargo.toml --locked 的两项测试通过。
+测试隔离 HKCU 子树，核对菜单注册、精确 Unicode 命令字符串、移除、其他菜单保留；不修改真实 Explorer 菜单项。
+启动参数只接受显式 --add；中文/空格/emoji 路径和启动队列去重、消费均通过。
+56 项共享核心测试通过，TypeScript/Vite 构建、桌面 Rust 检查通过。
+Windows release 桌面 exe 已构建通过（npm run tauri build -- --no-bundle）。
+
+使用：队列栏导出 CSV；设置中开启 Windows 右键入口，选中图片/文件夹右键添加。
+入口不自动压缩或覆盖。Windows 11 可查看“显示更多选项”。
+真实 Explorer 右键、多选、安装器/卸载行为和生产 CMS 仍需对应环境验收。

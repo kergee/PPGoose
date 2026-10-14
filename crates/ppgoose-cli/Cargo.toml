@@ -1,0 +1,16 @@
+[package]
+name = "ppgoose-cli"
+version = "0.2.0"
+description = "JSON stdin/stdout adapter for the PPGoose compression core"
+edition = "2021"
+rust-version = "1.89"
+
+[dependencies]
+ppgoose-core = { path = "../ppgoose-core" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+image = { version = "0.25", default-features = false, features = ["png"] }

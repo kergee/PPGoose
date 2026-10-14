@@ -1,0 +1,68 @@
+name: Independent compression core
+
+on:
+  push:
+    paths:
+      - 'crates/**'
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'package*.json'
+      - 'tsconfig.json'
+      - 'vite.config.ts'
+      - '.github/workflows/core.yml'
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'package*.json'
+      - 'tsconfig.json'
+      - 'vite.config.ts'
+      - '.github/workflows/core.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates
+      - run: cargo test --manifest-path crates/Cargo.toml --locked
+      - run: cargo build --manifest-path crates/Cargo.toml --release -p ppgoose-cli --locked
+      - uses: actions/setup-node@v4
+        if: matrix.os == 'windows-latest'
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        if: matrix.os == 'windows-latest'
+      - run: npm run build
+        if: matrix.os == 'windows-latest'
+      - run: npm run test:csv
+        if: matrix.os == 'windows-latest'
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+        if: matrix.os == 'windows-latest'
+      - run: npm run tauri build -- --no-bundle
+        if: matrix.os == 'windows-latest'
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'windows-latest'
+        with:
+          name: ppgoose-windows-desktop
+          path: src-tauri/target/release/ppgoose.exe
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ppgoose-cli-${{ matrix.os }}
+          path: |
+            crates/target/release/ppgoose-cli
+            crates/target/release/ppgoose-cli.exe
+          if-no-files-found: error

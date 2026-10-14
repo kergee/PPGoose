@@ -1,0 +1,10 @@
+[workspace]
+members = ["ppgoose-core", "ppgoose-cli"]
+resolver = "2"
+
+# Keep unwinding: mozjpeg errors are converted from panics to per-file errors.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
